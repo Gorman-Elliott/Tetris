@@ -1,16 +1,23 @@
-// RedRect.java: The largest possible rectangle in red.
 
-// Copied from Section 1.1 of
-//    Ammeraal, L. and K. Zhang (2007). Computer Graphics for Java Programmers, 2nd Edition,
-//       Chichester: John Wiley.
+/*
+	Tetris game written by Elliott Gorman.
+
+*/
+
+
 
 import java.awt.*;
 import java.awt.event.*;
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 
 import javax.swing.JPanel;
 import javax.swing.Timer;
+
+import testingenv.Tetris;
+
 import java.lang.Math;
 
 
@@ -43,6 +50,10 @@ class TetrisGame extends JPanel {
 	int CanvasSizeX = 450;
 	int CanvasSizeY = 600;
 	
+	// Canvas bounds
+	static int CanvasLeftBound = 25;
+	static int CanvasRightBound = 275;
+	
 	// Each Tetris square will be 25x25 pixels.
 	// Therefore, our play area is (25*10, 25*20) pixels
 	int playAreaX = 250;
@@ -63,6 +74,7 @@ class TetrisGame extends JPanel {
 	
 	// List of all game pieces in play and types of game pieces
 	ArrayList<TetrisPiece> GamePieces = new ArrayList<>();
+	ArrayList<TetrisSquare> TetrisSquares = new ArrayList<>();
 	Shape LegalShapes[] = {
 		Shape.I,
 		Shape.J,
@@ -76,19 +88,57 @@ class TetrisGame extends JPanel {
 	// GameBoard
 	boolean GameBoard[][] = new boolean[20][10];
 	
-	// Bool to check if this is the first run
-	boolean First = true;
+	// Bool to check if this is the FirstRNF run
+	boolean FirstRNF = true;
+	boolean FirstPC = true;
 	
 	// Boolean to check if we transformed this frame
 	boolean Transformed = false;
 	
 	// Variables to aide in Isotropic Mapping
-    int centerX, centerY;
-    float pixelSize;
-    float rWidth = (float) CanvasSizeX;
-    float rHeight = (float) CanvasSizeY;
+	static int centerX, centerY;
+	static float pixelSize, rWidth = 450.0F, rHeight = 600.0F;
+	
+	
+	// Current level, and scoring information
+	int CurrentLevel = 0;
+	int NumClearedLines = 0;
+	int Score = 0;
+	String strLevel = "Level : ";
+	String strLines = "Lines : ";
+	String strScore = "Score : ";
+	
+	// Boolean for when a piece is allowed to move down
+	// This is used to slow down how fast the tetris piece
+	// will move downwards
+	boolean PieceReadyToMoveDown = true;
+	
+	// Boolean to check if this piece is moving down quickly 
+	// (down arrow held) or not
+	boolean IsPieceMovingQuickly = false;
+	
+	// Tetris Piece that comes next
+	TetrisPiece UpcomingPiece;
+	
+	
+	
+	
 	
 	public TetrisGame() {
+		
+		// Register custom font
+	     try {
+		    GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+			ge.registerFont(Font.createFont(Font.TRUETYPE_FONT, new File("C:\\Users\\Elliott Gorman\\eclipse-workspace\\4361 Tetris\\src\\PressStart2P-Regular.ttf")));
+			
+		} catch (FontFormatException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
 		
 		// Attach Listener for game loop
         EventQueue.invokeLater(new Runnable() {
@@ -99,36 +149,12 @@ class TetrisGame extends JPanel {
         });
 	}
 	
-	void initgr() {
-		// Set canvas size
-		Dimension d = getSize();
-		CanvasSizeX = d.width;
-		CanvasSizeY = d.height;
-		rWidth = CanvasSizeX;
-		rHeight = CanvasSizeY;
-		
-//		Dimension d = getSize();
-		int maxX = d.width - 1;
-		int maxY = d.height - 1;
-		pixelSize = Math.max(rWidth / maxX, rHeight / maxY);
-		centerX = maxX / 2; 
-		centerY = maxY / 2;
-	}
-	
-	
-	// Isotropic mapping functions
-	int iX(float x) { return Math.round(centerX + x / pixelSize); }
-	int iY(float y) { return Math.round(centerY - y / pixelSize); }
-	float fx(int x) {return (x - centerX) * pixelSize;}
-	float fy(int y) {return (centerY - y) * pixelSize;}
-	
-	
 	private void TetrisGameLoop() {
 		// Register a KeyBoard Listener
 		new IsKeyPressed().KeyListener();
 		
 		// Loop
-        Timer timer = new Timer(140, new ActionListener() {
+        Timer MainLoopTimer = new Timer(50, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
             	// Ready the next frame for painting
@@ -138,67 +164,163 @@ class TetrisGame extends JPanel {
         		repaint();
             }
         });
-        timer.start();
+        MainLoopTimer.start();
+        
+        // Timer for piece moving down
+        Timer YAxisDelayTimer = new Timer(750, new ActionListener() {
+        	@Override
+        	public void actionPerformed(ActionEvent e) {
+        		// Every tick flick the PieceReadyToMoveDown
+        		PieceReadyToMoveDown = true;
+        	}
+        });
+        YAxisDelayTimer.start();
 		
 	}// End TetrisGameLoop()
 	
+	void initgr() {
+		Dimension d = getSize();
+		int maxX = d.width - 1;
+		int maxY = d.height - 1;
+		pixelSize = Math.max(rWidth / maxX, rHeight / maxY);
+		centerX = maxX / 2; 
+		centerY = maxY / 2;
+	}
 	
+	// Isotropic mapping functions
+	static int iX(float x) { return Math.round(centerX + x / pixelSize); }
+	static int iY(float y) { return Math.round(centerY - y / pixelSize); }
+	static float fx(int x) { return (x - centerX) * pixelSize; }
+	static float fy(int y) { return (centerY - y) * pixelSize; }
+	
+	public static void isoRect(Graphics g, float x, float y, float w, float h) {
+		// Calculate width and heights
+		int width = Math.abs(iX(x) - iX(x+w));
+		int height = Math.abs(iY(y) - iY(y-h));
+		g.drawRect(iX(x), iY(y), width, height);
+	}
+	
+	public static void isoFillRect(Graphics g, float x, float y, float w, float h) {
+		// Calculate width and heights
+		int width = Math.abs(iX(x) - iX(x+w));
+		int height = Math.abs(iY(y) - iY(y-h));
+		g.fillRect(iX(x), iY(y), width, height);
+	}
+	
+	
+	boolean CanMoveLeftRight = false;
 	
 	public void paintComponent(Graphics g) {
 		super.paintComponent(g);
 		
+		// Initialize basic graphics settings
+		//GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+		g.setFont(new Font("Press Start 2P", Font.PLAIN, 14));
+		if (FirstPC) {
+			
+			FirstPC = false;
+		}
+		
+		// Draw Background color
+		Color curColor = g.getColor();
+		g.setColor(Color.GRAY);
+		isoFillRect(g, -225, 300, 450, 600);
+		g.setColor(curColor);
+
 		// Recalculate isotropic grid coordinates
 		initgr();
 		
-		// Draw GUI
-		// WORKING HERE 9/2/2021
-		g.drawRect(iX(-(CanvasSizeX/2) + playAreaPaddingX), iY((CanvasSizeY/2) - playAreaPaddingY), 
-				   (int) (0.55556F*CanvasSizeX), (int) (0.833334F*CanvasSizeY));
-		
-		//g.drawRect(25, 25, playAreaX, playAreaY);
-		g.drawRect(25, playAreaY + playAreaPaddingY, 25, 25);
+		// Draw Play area rectangle
+		isoRect(g, -(CanvasSizeX/2) + playAreaPaddingX, (CanvasSizeY/2) - playAreaPaddingY, playAreaX, playAreaY);
 		
 		// Redraw game pieces
 		UpdateGamePieces(g);
+		
+		// Draw all tetris squares
+		for (int i = 0; i < TetrisSquares.size(); i++) {
+			TetrisSquares.get(i).DrawSelf(g);
+		}
+		
+	    // Draw next shape outer rectangle
+	    isoRect(g, 75, 275, 125, 100);
+	    
+	    // Draw current level, num lines, and score
+	    g.drawString(strLevel + CurrentLevel, iX(75), iY(0));
+	    g.drawString(strLines + NumClearedLines, iX(75), iY(-25));
+	    g.drawString(strScore + Score, iX(75), iY(-50));
+
+	    // Draw the quit button
+	    isoRect(g, 105, -155, 60, 30);
+	    g.drawString("QUIT", iX(115), iY(-175));
+	    
 	} // End paint()
 	
 	
-	
 	private void UpdateGamePieces(Graphics g) {
+		
 		// Draw all game pieces
 		for (int i = 0; i < GamePieces.size(); i++) {
 			GamePieces.get(i).DrawPiece(g);
-//			TetrisPiece piece = GamePieces.get(i);
-//			piece.DrawPiece(g, piece.thisX, piece.thisY);
 		}
+		
+		// Draw Upcoming game piece
+		if (UpcomingPiece != null)
+			UpcomingPiece.DrawPiece(g, 125, 225);
+		
 	}
-
+	
 	private void ReadyNextFrame() {
 		
-		if (First) {
+		if (FirstRNF) {
 			// Initialize GameBoard
 			for (int i = 0; i < GameBoard.length; i++) {
 				for (int j = 0; j < GameBoard[0].length; j++) {
 					GameBoard[i][j] = false;
 				}
 			}
-			First = false;
+			FirstRNF = false;
+			
+			// Initialize next Tetris Piece
+			int rand = ThreadLocalRandom.current().nextInt(0, 7);
+			UpcomingPiece = new TetrisPiece(LegalShapes[rand], 25);
 		}
 		
-		if (NextPiece) {
-			// Randomly select a new game piece
-			int rand = ThreadLocalRandom.current().nextInt(0, 7);
-			GamePieces.add(new TetrisPiece(LegalShapes[rand], 25));
-			//GamePieces.add(new TetrisPiece(Shape.J, 25));
+		if (NextPiece) {	
+			// Before doing anything with the next piece, ensure that 
+			// we do not need to remove any rows.
+			RemoveLinesIfFull();
 			
-			//GamePieces.add(new TetrisPiece(Shape.S, 25));
+			// Set next game piece and get a new one for next iter
+			int rand = ThreadLocalRandom.current().nextInt(0, 7);
+			GamePieces.add(UpcomingPiece);
+			UpcomingPiece = new TetrisPiece(LegalShapes[rand], 25);
+			//GamePieces.add(new TetrisPiece(Shape.O, 25));
+			
+			// Get information and set starting values for new piece
 			NextPieceIndex = GamePieces.size() - 1;
-			//GamePieces.get(NextPieceIndex).SetXY( iX(-(CanvasSizeX/2) + playAreaPaddingX + 100), iY((CanvasSizeY/2) - 25) );
-			//GamePieces.get(NextPieceIndex).SetXY( iX(-(CanvasSizeX/4) + playAreaPaddingX), iY((CanvasSizeY/2) - 25) );
-			GamePieces.get(NextPieceIndex).SetXY((int) (0.333334F*CanvasSizeX), 25);
+			GamePieces.get(NextPieceIndex).SetXY(-75, 250);
 			GamePieces.get(NextPieceIndex).CalculatePoints();
 			NextPiece = false;
 		}
+		
+		
+		if (IsKeyPressed.IsDebugKeyHeld()) {
+			GamePieces.remove(NextPieceIndex);
+		}
+		
+		// If restart is pressed, restart game
+		if (IsKeyPressed.IsRestartHeld()) {
+			GamePieces.clear();
+			TetrisSquares.clear();
+			
+			for (int i = 0; i < GameBoard.length; i++)
+				for (int j = 0; j < GameBoard[i].length; j++)
+					GameBoard[i][j] = false;
+			
+			NextPiece = true;
+			return;
+		}
+		
 		
 		if (IsKeyPressed.IsSpacePressed() && GamePieces.get(NextPieceIndex).shape != Shape.O) {
 			// Transform
@@ -209,7 +331,6 @@ class TetrisGame extends JPanel {
 			Transformed = true;
 			
 			IsKeyPressed.spacePressed = false;
-			
 		}
 		
 		// These variables are used to determine the offset in X from the starting
@@ -218,20 +339,35 @@ class TetrisGame extends JPanel {
 		
 		if (IsKeyPressed.IsRightArrowHeld()) {
 			TetrisPiece thisPiece = GamePieces.get(NextPieceIndex);
+
 			// Move to the right if not going out of bounds
-			if (thisPiece.rightMostBound + thisPiece.thisX <= 250) {
-				thisPiece.SetXY(thisPiece.thisX + 25, thisPiece.thisY);
-				currentPieceOffsetX -= 1;
+			if (thisPiece.rightMostBound + thisPiece.thisX < 50) {	// TODO Need to change this bound
+				
+				// If we're in bounds, make sure we're not going to hit another
+				// piece. If not, then we're good.
+				if (CanMovePieceLeftRight(thisPiece, 1)) {
+					thisPiece.SetXY(thisPiece.thisX + 25, thisPiece.thisY);
+					currentPieceOffsetX -= 1;
+				}
 			}
-		}
+		} // End if IsRightArrowHeld()
 		
 		if (IsKeyPressed.IsLeftArrowHeld()) {
 			TetrisPiece thisPiece = GamePieces.get(NextPieceIndex);
 			// Move to the left if not going out of bounds
-			if (thisPiece.leftMostBound + thisPiece.thisX > 25) {
-				thisPiece.SetXY(thisPiece.thisX - 25, thisPiece.thisY);
-				currentPieceOffsetX += 1;
+			if (thisPiece.leftMostBound + thisPiece.thisX > -200) {		// TODO Need to change this bound
+				if (CanMovePieceLeftRight(thisPiece, -1)) {
+					thisPiece.SetXY(thisPiece.thisX - 25, thisPiece.thisY);
+					currentPieceOffsetX += 1;
+				}
 			}
+		} // End if IsLeftArrowHeld()
+		
+		if (IsKeyPressed.IsDownArrowHeld()) {
+			IsPieceMovingQuickly = true;
+		} else {
+			// If down arrow is not held, piece is not moving quickly
+			IsPieceMovingQuickly = false;
 		}
 		
 		// Get the current game piece
@@ -239,15 +375,22 @@ class TetrisGame extends JPanel {
 		
 		// Make sure piece stops when hitting the lower bounds
 		// and setup to create new piece
-		if (currentPiece.bottomMostBound + currentPiece.thisY >= playAreaBottomBound) {
+		if (currentPiece.thisY + currentPiece.bottomMostBound <= -200) {	// TODO Need to change this bound, remove hardcoded values
 			NextPiece = true;
-			//test = true;
-		} 
+			// Relinquish this piece
+			RelinquishPiece(currentPiece);
+		}
 		else if (!CanMovePieceDown(currentPiece, currentPieceOffsetX)) {
 			NextPiece = true;
-		} else {
-			// Otherwise, tick game piece downward
-			currentPiece.SetXY(currentPiece.thisX, currentPiece.thisY + 25);
+			
+			// Relinquish this piece
+			RelinquishPiece(currentPiece);
+		}
+		else {
+			// Otherwise, tick game piece downward if ready, and we're not moving
+			// down quickly
+			if (PieceReadyToMoveDown || IsPieceMovingQuickly)
+				currentPiece.SetXY(currentPiece.thisX, currentPiece.thisY - 25);
 		}
 		
 		// Make sure our coordinates are up to date
@@ -256,17 +399,37 @@ class TetrisGame extends JPanel {
 		// Update the GameBoard
 		UpdateGameBoard(currentPiece, currentPieceOffsetX);
 		
-		PrintGameBoard();
+		//PrintGameBoard();
 		
-		// Reset Transformed
+		// Reset Transformed and piece moving downward
 		Transformed = false;
-	
+		PieceReadyToMoveDown = false;
+		
 	} // End ReadyNextFrame()
+	
+	// This method destroys a Tetris piece and takes it's 
+	// coordinates 
+	private void RelinquishPiece(TetrisPiece piece) {
+		
+		for (int i = 0, j = 1; i < 8; i+=2, j+=2) {
+			int thisSquareX = piece.CurrentCoordinates[i];
+			int thisSquareY = piece.CurrentCoordinates[j];
+			
+			TetrisSquares.add(new TetrisSquare(thisSquareX, thisSquareY, piece.color));
+		}
+		
+		// Remove this piece from the game pieces
+		GamePieces.remove(piece);
+		
+	} // End RelinquishPiece()
+	
+	
 	
 	private void UpdateGameBoard(TetrisPiece piece, int XOffset) {
 		// For the current game piece, update it's position
 		// on the game board
 		
+		// Remove old position from board
 		for (int i = 0, j = 1; i < 8; i+=2, j+=2) {
 			int thisSquareX;
 			int thisSquareY;
@@ -274,31 +437,45 @@ class TetrisGame extends JPanel {
 			if (Transformed == true) {
 				thisSquareX = piece.OldCoordinates[i] + XOffset;
 				thisSquareY = piece.OldCoordinates[j];
+				// TODO jump
 
-				// Note the below positions are offset -1 for array indexing
 				// Set previous position (y-1) as false
-				GameBoard[piece.OldCoordinates[j] - 1][piece.OldCoordinates[i] - 1] = false;
+				GameBoard[piece.OldCoordinates[j]][piece.OldCoordinates[i]] = false;
 			} else {
 				thisSquareX = piece.CurrentCoordinates[i] + XOffset;
 				thisSquareY = piece.CurrentCoordinates[j];
 				
-				piece.PrintCoordinates();
 				
-				// Note the below positions are offset -1 for array indexing
-				// Set previous position (y-1) as false
-				GameBoard[thisSquareY-1][thisSquareX-1] = false;
-				GameBoard[thisSquareY-2][thisSquareX-1] = false;
+				// If we hit the bottom of the board, we can still move left/right if possible.
+				// Therefore, we want to to only set (x, y), otherwise we're moving down as well
+				// and we want to set (x, y-1)
+				if (piece.thisY + piece.bottomMostBound <= -200) {
+					GameBoard[thisSquareY-1][thisSquareX] = false;
+					GameBoard[thisSquareY][thisSquareX] = false;
+				} else {
+					// Set previous position (y-1) as false
+					
+					// Since the y-axis ticks slower than the x-axis, only look 1 space backwards
+					// if on this call we're downwards
+					if (PieceReadyToMoveDown || IsPieceMovingQuickly) {
+						GameBoard[thisSquareY-1][thisSquareX] = false;
+					} else {
+						// Otherwise, only update x-axis
+						GameBoard[thisSquareY][thisSquareX] = false;
+					}
+
+				}
 			}
 			
 		} // End for i,j (removing old position from board)
 		
+		// Place new position on board
 		for (int i = 0, j = 1; i < 8; i+=2, j+=2) {
 			int thisSquareX = piece.CurrentCoordinates[i];
 			int thisSquareY = piece.CurrentCoordinates[j];
 
-			// Note the below positions are offset -1 for array indexing
 			// Set new position as true
-			GameBoard[thisSquareY-1][thisSquareX-1] = true;
+			GameBoard[thisSquareY][thisSquareX] = true;
 		}
 	} // End UpdateGameBoard();
 	
@@ -312,19 +489,14 @@ class TetrisGame extends JPanel {
 			int thisSquareX = piece.CurrentCoordinates[i];
 			int thisSquareY = piece.CurrentCoordinates[j];
 			
-			// If Any (x, y+1) is false, then return false
-			// y-1 for array indexing
-			try {
-				if (GameBoard[thisSquareY][thisSquareX-1] == true) {
-					// If this coordinate is part of itself, then don't move down
-					if (!IsCoordPartOfSelf(piece, thisSquareX, thisSquareY+1, XOffset)) {
-						// Return false and create a new piece.
-						return false;
-					}
+			// If Any (x, y+1) is true, then return false
+			if (GameBoard[thisSquareY+1][thisSquareX] == true) {
+				// Make sure this coordinate is not part of this piece
+				if (!IsCoordPartOfSelf(piece, thisSquareX, thisSquareY+1, XOffset)) {
+					// Return false and create a new piece.
+					return false;
 				}
-			} catch (ArrayIndexOutOfBoundsException e) {
-				// If we went outof bounds, do nothing
-			}
+			} 
 			
 		} // End for i,j
 		
@@ -337,16 +509,14 @@ class TetrisGame extends JPanel {
 		for (int i = 0, j = 1; i < 8; i+=2, j+=2) {
 			int thisSquareX = piece.CurrentCoordinates[i] + XOffset;
 			int thisSquareY = piece.CurrentCoordinates[j];
-			
-			//System.out.println("(" + thisSquareX + ", " + thisSquareY + "), " + "(" + x + ", " + y + ")");
-			
+
 			// If x, y is one of piece's coordinates, then we are looking at 
 			// ourselves. Return false.
 			
 			if (Transformed) {
 				// If the shape has been transformed, make sure it's not checking any
 				// of its' previous points
-				if ((piece.OldCoordinates[i] + XOffset) == x && piece.OldCoordinates[j] == y)
+				if ((piece.OldCoordinates[i]) == x && piece.OldCoordinates[j] == y)
 					return true;
 				
 			} else {
@@ -354,9 +524,118 @@ class TetrisGame extends JPanel {
 					return true;
 			}
 		}
-		//System.out.println("");
+
 		return false;
 	}
+	
+	// This method verifies that a Tetris piece can move to the right
+	// or left.
+	private boolean CanMovePieceLeftRight(TetrisPiece piece, int XOffset) {
+		
+		// Verify there is nothing at piece.coordinates+XOffset
+		for (int i = 0, j = 1; i < 8; i+=2, j+=2) {
+			int thisSquareX = piece.CurrentCoordinates[i];
+			int thisSquareY = piece.CurrentCoordinates[j];
+			
+			// See if the square is true
+			if (GameBoard[thisSquareY][thisSquareX+XOffset] == true) {
+				// Make sure this coordinate is not part of this piece
+				if (!IsCoordPartOfSelf(piece, thisSquareX+XOffset, thisSquareY, 0)) {
+					// Return false and create a new piece.
+					return false;
+				}
+			}
+			
+		} // End for i,j
+		
+		return true;
+		
+	} // End CanMovePieceLeftRight()
+	
+	
+	// This method checks to see if any of the rows are filled and if they
+	// are, it removes that row and shifts all remaining squares down.
+	private void RemoveLinesIfFull() {
+		
+		// Count for number of lines removed
+		int NumLinesRemoved = 0;
+		
+		// Check if a row is full
+		for (int i = 0; i < GameBoard.length; i++) {
+			int numFilled = 0;
+			for (int j = 0; j < GameBoard[i].length; j++) {
+				if (GameBoard[i][j] == true) {
+					numFilled++;
+				}
+			}
+			
+			// If numFilled is == GameBoard[i].length, then the row is full
+			if (numFilled == GameBoard[i].length) {
+				// Remove row i
+				RemoveRow(i);
+				NumLinesRemoved++;
+			}
+		} // End for i < GameBoard.length
+		
+		// Update Score and lines removed if we cleared lines
+		if (NumLinesRemoved > 0) {
+			Score += 40 * (CurrentLevel + NumLinesRemoved);
+			NumClearedLines += NumLinesRemoved;
+			
+			// For every 10 lines cleared, increase the level by 1
+			if ( (int) (NumClearedLines / 10) > CurrentLevel )
+				CurrentLevel = (int) (NumClearedLines / 10);
+		}
+		
+	} // End RemoveLinesIfFull()
+	
+	// Removes all blocks in a given row and shifts all blocks
+	// above down by 1
+	@SuppressWarnings("unchecked")
+	private void RemoveRow(int row) {
+		
+		// TODO
+		/*
+		 * Working, but it's pretty brute-forced, I'd like to come back
+		 * and improve this algorithm if I have time.
+		 * 
+		 * I think I can improve the second set of for loops.
+		 */
+		ArrayList<TetrisSquare> tempSquares = (ArrayList<TetrisSquare>) TetrisSquares.clone();
+		
+		// Remove all squares at row from Tetris Squares
+		for (int i = 0; i < tempSquares.size(); i++) {
+			TetrisSquare NextSquare = tempSquares.get(i);
+			
+			if (NextSquare.y == row) {
+				TetrisSquares.remove(NextSquare);
+				GameBoard[NextSquare.y][NextSquare.x] = false; 
+			}
+		}
+		
+		// Reset tempSquares to get rid of 
+		tempSquares = (ArrayList<TetrisSquare>) TetrisSquares.clone();
+		
+		// Move all squares above row down 1 space, starting at
+		// the bottommost row from row
+		for (int j = row - 1; j >= 0; j--) {
+			for (int i = 0; i < tempSquares.size(); i++) {
+				TetrisSquare NextSquare = tempSquares.get(i);
+				
+				// If this square is at the next row, move it down
+				if (NextSquare.y == j) {
+					GameBoard[NextSquare.y][NextSquare.x] = false;
+					NextSquare.SetXY(NextSquare.x, NextSquare.y + 1);
+					GameBoard[NextSquare.y][NextSquare.x] = true; 
+				}
+				
+			} // End for i = 0
+		} // End for j = row
+		
+		TetrisSquares = (ArrayList<TetrisSquare>) tempSquares.clone();
+		
+	} // End RemoveRow()
+	
 	
 	private void PrintGameBoard() {
 		for (int i = 0; i < GameBoard.length; i++) {
@@ -369,53 +648,62 @@ class TetrisGame extends JPanel {
 		System.out.println("\n");
 	}
 	
-//	private boolean PieceCollisionDetection(TetrisPiece piece) {
-//		// Loop through current GamePieces in play ...
-//		
-//		/*
-//		 * Our goal is to determine whether or not our current piece (piece)
-//		 * has hit any of our other game pieces.
-//		 * 
-//		 * We can do this by checking Y-bounds. if our current piece y's 
-//		 * bottom-most bound is >= another pieces topmost bound, return true
-//		 */
-//		
-//		// Note piece's points represent (x1, y1)
-//		
-//		for (int i = 0; i < GamePieces.size(); i++) {
-//			// Get piece to check (x2, y2)
-//			TetrisPiece comparePiece = GamePieces.get(i);
-//			if (comparePiece.equals(piece))
-//				continue;
-//			
-//			for (int j = 0, p = 1; j < 8; j+=2, p+=2) {
-//				if (Math.abs(piece.CurrentCoordinates[p-1] - comparePiece.CurrentCoordinates[p-1]) == 0) {
-//					// Verify the x coordinate for this y coordinate is valid
-//					if (piece.bottomMostBound + piece.thisY >= comparePiece.upperMostBound + comparePiece.thisY) {
-//						return true;
-//					}
-//					
-//				} // End for j, p
-//				
-//			}
-//			
-////			for (int j = 0, p = 1; j < 8; j+=2, p+=2) {
-////				if (piece.CurrentCoordinates[p] + 1 >= comparePiece.CurrentCoordinates[p]) {
-////					// Verify the x coordinate for this y coordinate is valid
-////					if (Math.abs(piece.CurrentCoordinates[p-1] - comparePiece.CurrentCoordinates[p-1]) < 1) {
-////						return true;
-////					}
-////					
-////				}
-////				
-////			} // End for j, p
-//		} // End for i
-//		
-//		// Else, return false
-// 		return false;
-//	}
 	
 } // End class TetrisGame
+
+
+
+// This class represents a single tetris square
+class TetrisSquare {
+	
+	// Location on the GameBoard (NOT TRADITIONAL X,Y coordinates)
+	int x;
+	int y;
+	
+	// Color of this piece
+	Color color;
+
+	public TetrisSquare(int setX, int setY, Color c) {
+		x = setX;
+		y = setY;
+		color = c;
+	}
+	
+	public void SetXY(int setX, int setY) {
+		x = setX;
+		y = setY;
+	}
+	
+	public void DrawSelf(Graphics g) {
+		// Save draw color
+		Color savedDrawColor = g.getColor();
+		g.setColor(color);
+		
+		int ScaleFactor = 25;
+		// TODO jump
+		int actualX = (x-8)*ScaleFactor;
+		int actualY = ((-y)+11)*ScaleFactor;
+
+		// draw rectangle
+		TetrisGame.isoFillRect(g, actualX, actualY, ScaleFactor, ScaleFactor);
+		
+		// Draw border of rectangle with black
+		g.setColor(Color.black);
+		TetrisGame.isoRect(g, actualX, actualY, ScaleFactor, ScaleFactor);
+		
+		// Restore previous draw color
+		g.setColor(savedDrawColor);
+	}
+	
+}
+
+
+
+
+
+
+
+
 
 
 // Key Listener Class
@@ -426,6 +714,9 @@ class IsKeyPressed {
     // Note these are moreso implemented "while held"
     public static volatile boolean rightArrowPressed = false;
     public static volatile boolean leftArrowPressed = false;
+    public static volatile boolean debugTPressed = false;
+    public static volatile boolean downArrowPressed = false;
+    public static volatile boolean rKeyHeld = false;
     
     public static boolean IsSpacePressed() {
         synchronized (IsKeyPressed.class) {
@@ -444,7 +735,25 @@ class IsKeyPressed {
             return leftArrowPressed;
         }
     }
-        
+    
+    public static boolean IsDebugKeyHeld() {
+    	synchronized (IsKeyPressed.class) {
+    		return debugTPressed;
+    	}
+    }
+    
+    public static boolean IsDownArrowHeld() {
+    	synchronized (IsKeyPressed.class) {
+    		return downArrowPressed;
+    	}
+    }
+    
+    public static boolean IsRestartHeld() {
+    	synchronized (IsKeyPressed.class) {
+    		return rKeyHeld;
+    	}
+    }
+
 	public void KeyListener() {
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(new KeyEventDispatcher() {
             @Override
@@ -462,6 +771,15 @@ class IsKeyPressed {
                         else if (ke.getKeyCode() == KeyEvent.VK_LEFT) {
                         	leftArrowPressed = true;
                         }
+                        else if (ke.getKeyCode() == KeyEvent.VK_T) {
+                        	debugTPressed = true;
+                        }
+                        else if (ke.getKeyCode() == KeyEvent.VK_DOWN) {
+                        	downArrowPressed = true;
+                        }
+                        else if (ke.getKeyCode() == KeyEvent.VK_R) {
+                        	rKeyHeld = true;
+                        }
                         break;
 
                     case KeyEvent.KEY_RELEASED:
@@ -472,6 +790,15 @@ class IsKeyPressed {
                             else if (ke.getKeyCode() == KeyEvent.VK_LEFT) {
                             	leftArrowPressed = false;
                             }
+                            else if (ke.getKeyCode() == KeyEvent.VK_T) {
+                            	debugTPressed = false;
+                            }
+                            else if (ke.getKeyCode() == KeyEvent.VK_DOWN) {
+                            	downArrowPressed = false;
+                            }
+                            else if (ke.getKeyCode() == KeyEvent.VK_R) {
+                            	rKeyHeld = false;
+                            }
                         break;
                     }
                     return false;
@@ -481,6 +808,13 @@ class IsKeyPressed {
 	} // End KeyListener
 } // End class IsKeyPressed
 
+
+
+
+
+class DestroyedTetrisPiece {
+	
+}
 
 //Enumerator for Tetris Shapes
 enum Shape {
@@ -560,168 +894,168 @@ class TetrisPiece {
 		shape = s;
 		
 		switch (s) {
-			case L:
-				// Square one has x's at [0] and y's at [1]
-				// and so on... (for other squares)
-				ShapeMatrix[0] = 0;
-				ShapeMatrix[1] = 0;
-				
-				// Square 2
-				ShapeMatrix[2] = 0;
-				ShapeMatrix[3] = 1;
-				
-				// Square 3
-				ShapeMatrix[4] = 0;
-				ShapeMatrix[5] = 2;
-				
-				// Square 4
-				ShapeMatrix[6] = 1;
-				ShapeMatrix[7] = 2;
-				
-				// Set Color
-				color = Color.orange;
-			break;
-		
-			case S:
-				// Square one has x's at [0] and y's at [1]
-				// and so on... (for other squares)
-				ShapeMatrix[0] = 0;
-				ShapeMatrix[1] = 0;
-				
-				// Square 2
-				ShapeMatrix[2] = 1;
-				ShapeMatrix[3] = 0;
-				
-				// Square 3
-				ShapeMatrix[4] = 0;
-				ShapeMatrix[5] = 1;
-				
-				// Square 4
-				ShapeMatrix[6] = -1;
-				ShapeMatrix[7] = 1;
-				
-				// Set Color
-				color = Color.green;
-			break;
+		case L:
+			// Square one has x's at [0] and y's at [1]
+			// and so on... (for other squares)
+			ShapeMatrix[0] = 0;
+			ShapeMatrix[1] = 0;
 			
-			case J:
-				// Square one has x's at [0] and y's at [1]
-				// and so on... (for other squares)
-				ShapeMatrix[0] = 0;
-				ShapeMatrix[1] = 0;
-				
-				// Square 2
-				ShapeMatrix[2] = 0;
-				ShapeMatrix[3] = 1;
-				
-				// Square 3
-				ShapeMatrix[4] = 0;
-				ShapeMatrix[5] = 2;
-				
-				// Square 4
-				ShapeMatrix[6] = -1;
-				ShapeMatrix[7] = 2;
-				
-				// Set Color
-				color = Color.blue;
-			break;
+			// Square 2
+			ShapeMatrix[2] = 0;
+			ShapeMatrix[3] = -1;
 			
-			case I:
-				// Square one has x's at [0] and y's at [1]
-				// and so on... (for other squares)
-				ShapeMatrix[0] = 0;
-				ShapeMatrix[1] = 0;
-				
-				// Square 2
-				ShapeMatrix[2] = 0;
-				ShapeMatrix[3] = 1;
-				
-				// Square 3
-				ShapeMatrix[4] = 0;
-				ShapeMatrix[5] = 2;
-				
-				// Square 4
-				ShapeMatrix[6] = 0;
-				ShapeMatrix[7] = 3;
-				
-				// Set Color
-				color = Color.cyan;
-			break;
+			// Square 3
+			ShapeMatrix[4] = 0;
+			ShapeMatrix[5] = -2;
 			
-			case O:
-				// Square one has x's at [0] and y's at [1]
-				// and so on... (for other squares)
-				ShapeMatrix[0] = 0;
-				ShapeMatrix[1] = 0;
-				
-				// Square 2
-				ShapeMatrix[2] = 1;
-				ShapeMatrix[3] = 0;
-				
-				// Square 3
-				ShapeMatrix[4] = 0;
-				ShapeMatrix[5] = 1;
-				
-				// Square 4
-				ShapeMatrix[6] = 1;
-				ShapeMatrix[7] = 1;
-				
-				// Set Color
-				color = Color.yellow;
-			break;
+			// Square 4
+			ShapeMatrix[6] = 1;
+			ShapeMatrix[7] = -2;
 			
-			case Z:
-				// Square one has x's at [0] and y's at [1]
-				// and so on... (for other squares)
-				ShapeMatrix[0] = 0;
-				ShapeMatrix[1] = 0;
-				
-				// Square 2
-				ShapeMatrix[2] = -1;
-				ShapeMatrix[3] = 0;
-				
-				// Square 3
-				ShapeMatrix[4] = 0;
-				ShapeMatrix[5] = 1;
-				
-				// Square 4
-				ShapeMatrix[6] = 1;
-				ShapeMatrix[7] = 1;
-				
-				// Set Color
-				color = Color.red;
-			break;
-			
-			case T:
-				// Square one has x's at [0] and y's at [1]
-				// and so on... (for other squares)
-				ShapeMatrix[0] = 0;
-				ShapeMatrix[1] = 0;
-				
-				// Square 2
-				ShapeMatrix[2] = -1;
-				ShapeMatrix[3] = 0;
-				
-				// Square 3
-				ShapeMatrix[4] = 1;
-				ShapeMatrix[5] = 0;
-				
-				// Square 4
-				ShapeMatrix[6] = 0;
-				ShapeMatrix[7] = 1;
-				
-				// Set Color
-				color = Color.pink;
-			break;
-			
-		} // End switch(Shape)
-		
-		// Set scale and calculate bounds
-		ScaleFactor = scale;
-		CalculateBounds();
-		CalculatePoints();
+			// Set Color
+			color = Color.orange;
+		break;
 	
-	} // End TetrisShape()
+		case S:
+			// Square one has x's at [0] and y's at [1]
+			// and so on... (for other squares)
+			ShapeMatrix[0] = 0;
+			ShapeMatrix[1] = 0;
+			
+			// Square 2
+			ShapeMatrix[2] = 1;
+			ShapeMatrix[3] = 0;
+			
+			// Square 3
+			ShapeMatrix[4] = 0;
+			ShapeMatrix[5] = -1;
+			
+			// Square 4
+			ShapeMatrix[6] = -1;
+			ShapeMatrix[7] = -1;
+			
+			// Set Color
+			color = Color.green;
+		break;
+		
+		case J:
+			// Square one has x's at [0] and y's at [1]
+			// and so on... (for other squares)
+			ShapeMatrix[0] = 0;
+			ShapeMatrix[1] = 0;
+			
+			// Square 2
+			ShapeMatrix[2] = 0;
+			ShapeMatrix[3] = -1;
+			
+			// Square 3
+			ShapeMatrix[4] = 0;
+			ShapeMatrix[5] = -2;
+			
+			// Square 4
+			ShapeMatrix[6] = -1;
+			ShapeMatrix[7] = -2;
+			
+			// Set Color
+			color = Color.blue;
+		break;
+		
+		case I:
+			// Square one has x's at [0] and y's at [1]
+			// and so on... (for other squares)
+			ShapeMatrix[0] = 0;
+			ShapeMatrix[1] = 0;
+			
+			// Square 2
+			ShapeMatrix[2] = 0;
+			ShapeMatrix[3] = -1;
+			
+			// Square 3
+			ShapeMatrix[4] = 0;
+			ShapeMatrix[5] = -2;
+			
+			// Square 4
+			ShapeMatrix[6] = 0;
+			ShapeMatrix[7] = -3;
+			
+			// Set Color
+			color = Color.cyan;
+		break;
+		
+		case O:
+			// Square one has x's at [0] and y's at [1]
+			// and so on... (for other squares)
+			ShapeMatrix[0] = 0;
+			ShapeMatrix[1] = 0;
+			
+			// Square 2
+			ShapeMatrix[2] = 1;
+			ShapeMatrix[3] = 0;
+			
+			// Square 3
+			ShapeMatrix[4] = 0;
+			ShapeMatrix[5] = -1;
+			
+			// Square 4
+			ShapeMatrix[6] = 1;
+			ShapeMatrix[7] = -1;
+			
+			// Set Color
+			color = Color.yellow;
+		break;
+		
+		case Z:
+			// Square one has x's at [0] and y's at [1]
+			// and so on... (for other squares)
+			ShapeMatrix[0] = 0;
+			ShapeMatrix[1] = 0;
+			
+			// Square 2
+			ShapeMatrix[2] = -1;
+			ShapeMatrix[3] = 0;
+			
+			// Square 3
+			ShapeMatrix[4] = 0;
+			ShapeMatrix[5] = -1;
+			
+			// Square 4
+			ShapeMatrix[6] = 1;
+			ShapeMatrix[7] = -1;
+			
+			// Set Color
+			color = Color.red;
+		break;
+		
+		case T:
+			// Square one has x's at [0] and y's at [1]
+			// and so on... (for other squares)
+			ShapeMatrix[0] = 0;
+			ShapeMatrix[1] = 0;
+			
+			// Square 2
+			ShapeMatrix[2] = -1;
+			ShapeMatrix[3] = 0;
+			
+			// Square 3
+			ShapeMatrix[4] = 1;
+			ShapeMatrix[5] = 0;
+			
+			// Square 4
+			ShapeMatrix[6] = 0;
+			ShapeMatrix[7] = 1;
+			
+			// Set Color
+			color = Color.pink;
+		break;
+		
+	} // End switch(Shape)
+	
+	// Set scale and calculate bounds
+	ScaleFactor = scale;
+	CalculateBounds();
+	CalculatePoints();
+
+	} // End TetrisPiece() constructor
 
 	
 	public void SetXY(int x, int y) {
@@ -739,25 +1073,29 @@ class TetrisPiece {
 		
 		// Need to draw rectangles (squares)
 		// Requires starting x, y and then width + height
-		
+
 		// i will be x, j y; loops 4 times
 		for (int i = 0, j = 1; i < 8; i+=2, j+=2) {
 			int thisSquareX = ShapeMatrix[i];
 			int thisSquareY = ShapeMatrix[j];
 			
+			// Calculate next x and y
+			int nextX = ( thisSquareX * ScaleFactor) + thisX;
+			int nextY = ( thisSquareY * ScaleFactor) + thisY;
+			
 			// Fill rectangle with specific color
 			g.setColor(color);
-			g.fillRect((thisSquareX * ScaleFactor) + thisX, (thisSquareY * ScaleFactor) + thisY, ScaleFactor, ScaleFactor);
+			TetrisGame.isoFillRect(g, nextX, nextY, ScaleFactor, ScaleFactor);
 			
 			// Draw border of rectangle with black
 			g.setColor(Color.black);
-			g.drawRect((thisSquareX * ScaleFactor) + thisX, (thisSquareY * ScaleFactor) + thisY, ScaleFactor, ScaleFactor);
+			TetrisGame.isoRect(g, nextX, nextY, ScaleFactor, ScaleFactor);
 		}
 		
 		// Reset draw color
 		g.setColor(currentDrawColor);
 		
-	}
+	} // End DrawPiece(g)
 	
 	// Draws this piece at coordinates x and y on graphics context g
 	public void DrawPiece(Graphics g, int x, int y) {
@@ -774,19 +1112,23 @@ class TetrisPiece {
 			int thisSquareX = ShapeMatrix[i];
 			int thisSquareY = ShapeMatrix[j];
 			
+			// Calculate next x and y
+			int nextX = ( thisSquareX * ScaleFactor) + x;
+			int nextY = ( thisSquareY * ScaleFactor) + y;
+			
 			// Fill rectangle with specific color
 			g.setColor(color);
-			g.fillRect((thisSquareX * ScaleFactor) + x, (thisSquareY * ScaleFactor) + y, ScaleFactor, ScaleFactor);
+			TetrisGame.isoFillRect(g, nextX, nextY, ScaleFactor, ScaleFactor);
 			
 			// Draw border of rectangle with black
 			g.setColor(Color.black);
-			g.drawRect((thisSquareX * ScaleFactor) + x, (thisSquareY * ScaleFactor) + y, ScaleFactor, ScaleFactor);
+			TetrisGame.isoRect(g, nextX, nextY, ScaleFactor, ScaleFactor);
 		}
 		
 		// Reset draw color
 		g.setColor(currentDrawColor);
 		
-	}
+	} // DrawPiece(g, x, y)
 	
 	// Transforms piece given a Rotation direction
 	public void TransformPiece(RotateDirection dir) {
@@ -869,15 +1211,17 @@ class TetrisPiece {
 	
 	public boolean EnsureSafeTransformation(int sMatrix[]) {
 		
+		// Need to make sure we can only transform when its safe.
+		
 		// Verify that the transformation is safe by ensuring all X-values are
 		// within the play area bounds
-		
 		int TemporaryCoordinates[] = new int[8];
 		
-		System.out.println();
 		for (int i = 0, j = 1; i < 8; i+=2, j+=2) {
-			TemporaryCoordinates[i] = (ShapeMatrix[i]*ScaleFactor + thisX);
-			if ( TemporaryCoordinates[i] < 25 || TemporaryCoordinates[i] >= 225 ) 
+			TemporaryCoordinates[i] = ( sMatrix[i]*ScaleFactor ) + thisX;
+			TemporaryCoordinates[j] = ( sMatrix[j]*ScaleFactor ) + thisY;
+			if ( TemporaryCoordinates[i] < -200 || TemporaryCoordinates[i] > 25 ||
+				 TemporaryCoordinates[j] < -225) 
 				return false;
 		}
 		
@@ -886,11 +1230,14 @@ class TetrisPiece {
 	} // End CalculatePoints()
 	
 	public void CalculatePoints() {
-		
-		System.out.println();
+
 		for (int i = 0, j = 1; i < 8; i+=2, j+=2) {
-			CurrentCoordinates[i] = (ShapeMatrix[i] + (thisX / ScaleFactor));
-			CurrentCoordinates[j] = (ShapeMatrix[j] + (thisY / ScaleFactor));
+			// map x,y to correct coordinate planes
+			// TODO jump
+			// Add 8 and 11 to x, y to allow for array indexing
+			CurrentCoordinates[i] = ( ShapeMatrix[i] + (thisX / ScaleFactor) ) + 8;
+			CurrentCoordinates[j] = -( ShapeMatrix[j] + (thisY / ScaleFactor) ) + 11;
+
 		}
 		
 	} // End CalculatePoints()
@@ -943,11 +1290,11 @@ class TetrisPiece {
 			}
 		}
 		
-		// Set bottomMostBound to highestY+1 * ScaleFactor
-		bottomMostBound = (highestY + 1) * ScaleFactor;
+		// Set upperMostBound to highestY+1 * ScaleFactor
+		upperMostBound = (highestY + 1) * ScaleFactor;
 		
-		// Set upperMostBound to lowest Y * ScaleFactor
-		upperMostBound = lowestY * ScaleFactor;
+		// Set bottomMostBound to lowest Y * ScaleFactor
+		bottomMostBound = lowestY * ScaleFactor;
 		
 		// Set leftMostBound to lowestX*ScaleFactor
 		leftMostBound = lowestX * ScaleFactor;
@@ -982,42 +1329,5 @@ class TetrisPiece {
 	
 	
 } // End class TetrisPiece
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
