@@ -1,9 +1,13 @@
 
-/*
-	Tetris game written by Elliott Gorman.
-
-*/
-
+/* Tetris.java - A Tetris game written in Java.
+ * 
+ * Author : Elliott Gorman
+ *
+ * Note   : This is a work in progress. The code needs to be refactored
+ * 			and cleaned up. This will happen at a later date.
+ * 
+ * Last Modification: 10/11/2021
+ */
 
 
 import java.awt.*;
@@ -104,9 +108,9 @@ class TetrisGame extends JPanel {
 	int CurrentLevel = 0;
 	int NumClearedLines = 0;
 	int Score = 0;
-	String strLevel = "Level : ";
-	String strLines = "Lines : ";
-	String strScore = "Score : ";
+	String strLevel = "Level: ";
+	String strLines = "Lines: ";
+	String strScore = "Score: ";
 	
 	// Boolean for when a piece is allowed to move down
 	// This is used to slow down how fast the tetris piece
@@ -120,8 +124,20 @@ class TetrisGame extends JPanel {
 	// Tetris Piece that comes next
 	TetrisPiece UpcomingPiece;
 	
+	// Boolean for pause game
+	boolean GamePaused = false;
+	boolean DisplayPaused = false;
 	
+	// Boolean that verifies if a piece can move left or right
+	// i.e., it's not being blocked
+	boolean CanMoveLeftRight = false;
 	
+	// Used to determine what menu item we're on when paused
+	// True: This is the current selection
+	// False: This item is not currently selected
+	// [0]: Resume 
+	// [1]: Quit
+	boolean PauseMenuSelection[] = new boolean[2];
 	
 	
 	public TetrisGame() {
@@ -207,15 +223,12 @@ class TetrisGame extends JPanel {
 		g.fillRect(iX(x), iY(y), width, height);
 	}
 	
-	
-	boolean CanMoveLeftRight = false;
-	
 	public void paintComponent(Graphics g) {
 		super.paintComponent(g);
 		
 		// Initialize basic graphics settings
 		//GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-		g.setFont(new Font("Press Start 2P", Font.PLAIN, 14));
+		g.setFont( new Font( "Press Start 2P", Font.PLAIN, Math.min(iX(-175)/4, iY(250)/4) ) );
 		if (FirstPC) {
 			
 			FirstPC = false;
@@ -223,7 +236,8 @@ class TetrisGame extends JPanel {
 		
 		// Draw Background color
 		Color curColor = g.getColor();
-		g.setColor(Color.GRAY);
+		Color offWhite = new Color(240, 240, 240);
+		g.setColor(offWhite);
 		isoFillRect(g, -225, 300, 450, 600);
 		g.setColor(curColor);
 
@@ -249,10 +263,41 @@ class TetrisGame extends JPanel {
 	    g.drawString(strLines + NumClearedLines, iX(75), iY(-25));
 	    g.drawString(strScore + Score, iX(75), iY(-50));
 
-	    // Draw the quit button
-	    isoRect(g, 105, -155, 60, 30);
-	    g.drawString("QUIT", iX(115), iY(-175));
 	    
+		// Pause game if escape is pressed
+		if (DisplayPaused) {
+			// Draw pause screen
+			
+			// Draw Background color
+			curColor = g.getColor();
+			Color alphaGray = new Color(117, 117, 177, 117); // ~75% transparent
+			g.setColor(alphaGray);
+			isoFillRect(g, -225, 300, 450, 600);
+			g.setColor(curColor);
+			
+			// Set a larger font and draw paused text
+			g.setFont( new Font("Press Start 2P", Font.PLAIN, Math.min(iX(-175), iY(250)) ));
+			g.drawString("PAUSED", iX(-135), iY(150));
+			
+			// Set text for menu
+			g.setFont( new Font("Press Start 2P", Font.PLAIN, Math.min(iX(-200), iY(275)) ));
+			
+			// Draw Resume button
+			g.drawString("Resume", iX(-75), iY(50));
+			
+			// Draw Quit button
+			g.drawString("Quit", iX(-50), iY(0));
+			
+			// Draw Menu Item selection (rect) based on PauseMenuSelection
+			for (int i = 0; i < PauseMenuSelection.length; i++) {
+				if (PauseMenuSelection[i] == true) {
+					isoRect(g, -90, (90 - i*50), 170, 50);
+				}
+			}
+			
+		} // End if DisplayPaused
+		    
+
 	} // End paint()
 	
 	
@@ -278,12 +323,83 @@ class TetrisGame extends JPanel {
 					GameBoard[i][j] = false;
 				}
 			}
-			FirstRNF = false;
+			
+			// Initialize MenuPauseOption
+			PauseMenuSelection[0] = true;  // Resume
+			PauseMenuSelection[1] = false; // Quit
 			
 			// Initialize next Tetris Piece
 			int rand = ThreadLocalRandom.current().nextInt(0, 7);
 			UpcomingPiece = new TetrisPiece(LegalShapes[rand], 25);
+			
+			// End first
+			FirstRNF = false;
 		}
+		
+		
+		// Check if we've pressed the escape key (Paused Game)
+		if (IsKeyPressed.IsEscapeHeld()) {
+			
+			IsKeyPressed.escKeyHeld = false;
+			
+			// Is Display paused
+			if (DisplayPaused) {
+				// If display is already paused, resume
+				DisplayPaused = false;
+			} else {
+				// Otherwise, if display is not paused, pause it
+				DisplayPaused = true;
+			}
+			
+			// Return if escaping
+			return;
+			
+		} // End if Escape is held()
+		
+		else {
+			// End IsEscapePressed()
+			// If we're paused, navigate pause menu
+			if (DisplayPaused) {
+				
+				// If we press the down arrow, move selection down
+				if (IsKeyPressed.IsDownArrowHeld()) {
+					for (int i = 0; i < PauseMenuSelection.length; i++) {
+						if ( PauseMenuSelection[i] == true && (i+1 != PauseMenuSelection.length) ) {
+							PauseMenuSelection[i] = false;
+							PauseMenuSelection[i+1] = true;
+						}
+					}
+					
+				} // End if IsDownArrowHeld
+				
+				// If we press the up arrow, move selection up 
+				if (IsKeyPressed.IsUpArrowHeld()) {
+					for (int i = 0; i < PauseMenuSelection.length; i++) {
+						if ( PauseMenuSelection[i] == true && (i-1 >= 0) ) {
+							PauseMenuSelection[i] = false;
+							PauseMenuSelection[i-1] = true;
+						}
+					}
+					
+				} // End if IsUpArrowHeld
+				
+				// If we press the enter key, check our selection and perform action
+				if (IsKeyPressed.IsEnterPressed()) {
+					// If Resume [0], unpause game
+					if (PauseMenuSelection[0] == true)
+						DisplayPaused = false;
+					
+					// If Quit [1], exit application
+					if (PauseMenuSelection[1] == true)
+						System.exit(0);
+				}
+				
+				return;
+			} // End if Display is paused
+		} // End if escape is not pressed
+	
+
+		
 		
 		if (NextPiece) {	
 			// Before doing anything with the next piece, ensure that 
@@ -302,7 +418,6 @@ class TetrisGame extends JPanel {
 			GamePieces.get(NextPieceIndex).CalculatePoints();
 			NextPiece = false;
 		}
-		
 		
 		if (IsKeyPressed.IsDebugKeyHeld()) {
 			GamePieces.remove(NextPieceIndex);
@@ -714,9 +829,13 @@ class IsKeyPressed {
     // Note these are moreso implemented "while held"
     public static volatile boolean rightArrowPressed = false;
     public static volatile boolean leftArrowPressed = false;
-    public static volatile boolean debugTPressed = false;
     public static volatile boolean downArrowPressed = false;
+    public static volatile boolean upArrowPressed = false;
+    
+    public static volatile boolean debugTPressed = false;
     public static volatile boolean rKeyHeld = false;
+    public static volatile boolean escKeyHeld = false;
+    public static volatile boolean keyEnterPressed = false;
     
     public static boolean IsSpacePressed() {
         synchronized (IsKeyPressed.class) {
@@ -753,6 +872,24 @@ class IsKeyPressed {
     		return rKeyHeld;
     	}
     }
+    
+    public static boolean IsEscapeHeld() {
+    	synchronized (IsKeyPressed.class) {
+    		return escKeyHeld;
+    	}
+    }
+    
+    public static boolean IsUpArrowHeld() {
+    	synchronized (IsKeyPressed.class) {
+    		return upArrowPressed;
+    	}
+    }
+    
+    public static boolean IsEnterPressed() {
+    	synchronized (IsKeyPressed.class) {
+    		return keyEnterPressed;
+    	}
+    }
 
 	public void KeyListener() {
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(new KeyEventDispatcher() {
@@ -780,6 +917,15 @@ class IsKeyPressed {
                         else if (ke.getKeyCode() == KeyEvent.VK_R) {
                         	rKeyHeld = true;
                         }
+                        else if (ke.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                        	escKeyHeld = true;
+                        }
+                        else if (ke.getKeyCode() == KeyEvent.VK_UP) {
+                        	upArrowPressed = true;
+                        }
+                        else if (ke.getKeyCode() == KeyEvent.VK_ENTER) {
+                        	keyEnterPressed = true;
+                        }
                         break;
 
                     case KeyEvent.KEY_RELEASED:
@@ -796,8 +942,17 @@ class IsKeyPressed {
                             else if (ke.getKeyCode() == KeyEvent.VK_DOWN) {
                             	downArrowPressed = false;
                             }
+                            else if (ke.getKeyCode() == KeyEvent.VK_UP) {
+                            	upArrowPressed = false;
+                            }
                             else if (ke.getKeyCode() == KeyEvent.VK_R) {
                             	rKeyHeld = false;
+                            }
+                            else if (ke.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                            	escKeyHeld = false;
+                            }
+                            else if (ke.getKeyCode() == KeyEvent.VK_ENTER) {
+                            	keyEnterPressed = false;
                             }
                         break;
                     }
